@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+google-generativeai
+chromadb
+PyMuPDF
+requests
+python-dotenv
+pillow
+aiofiles
+python-multipart
+selenium
+webdriver-manager
+beautifulsoup4
+

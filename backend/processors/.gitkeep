@@ -1,0 +1,8 @@
+# Processors - files go here
+# pdf_reader.py
+# rag_embedder.py
+# predictor.py
+# model_paper.py
+# flashcard_gen.py
+# quiz_gen.py
+# ask_engine.py

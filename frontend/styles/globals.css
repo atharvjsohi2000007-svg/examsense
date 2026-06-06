@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+:root {
+  --background: #FFFFFF;
+  --foreground: #1D1D1F;
+  --gray-secondary: #6E6E73;
+  --apple-border: #E5E5E5;
+  --indigo-primary: #6366F1;
+}
+
+@theme inline {
+  --font-inter: "Inter", sans-serif;
+  --tracking-tight: -0.02em;
+  --tracking-tighter: -0.05em;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: var(--tracking-tighter);
+}
+
+.apple-pill {
+  border-radius: 980px;
+}
