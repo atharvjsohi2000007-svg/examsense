@@ -5,7 +5,7 @@ Generate a full formatted model exam paper from hot topics using Gemini.
 import sys
 from pathlib import Path
 
-import google.generativeai as genai
+from google import genai
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
@@ -13,10 +13,12 @@ if str(BACKEND_DIR) not in sys.path:
 
 from config import GEMINI_API_KEY  # noqa: E402
 
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash-001"
 
+# ── Gemini client (new google-genai library) ──────────────────────────────────
+_gemini_client: genai.Client | None = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def _format_hot_topics(hot_topics: list[str] | str) -> str:
@@ -65,7 +67,7 @@ def generate_model_paper(
 
     Returns the paper as plain text, or None if generation fails.
     """
-    if not GEMINI_API_KEY:
+    if not _gemini_client:
         print("generate_model_paper: GEMINI_API_KEY is not set.")
         return None
 
@@ -76,8 +78,10 @@ def generate_model_paper(
 
     try:
         prompt = _build_prompt(college, course, semester, topics_text)
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(prompt)
+        response = _gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+        )
         paper = (response.text or "").strip()
 
         if not paper:

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
@@ -17,11 +17,13 @@ if str(BACKEND_DIR) not in sys.path:
 from config import GEMINI_API_KEY  # noqa: E402
 from processors.rag_embedder import search  # noqa: E402
 
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash-001"
 SEARCH_TOP_K = 8
 
+# ── Gemini client (new google-genai library) ──────────────────────────────────
+_gemini_client: genai.Client | None = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def _error_response(message: str) -> dict[str, Any]:
@@ -52,12 +54,7 @@ def _build_context(chunks: list[dict[str, Any]]) -> str:
     return "\n\n---\n\n".join(sections)
 
 
-def _build_prompt(
-    college: str,
-    course: str,
-    user_question: str,
-    context: str,
-) -> str:
+def _build_prompt(college: str, course: str, user_question: str, context: str) -> str:
     """Prompt Gemini to answer using only retrieved past paper excerpts."""
     return f"""You are a helpful exam tutor for {college} {course} students.
 
@@ -116,13 +113,12 @@ def ask_question(
     if not question:
         return _error_response("Please enter a question.")
 
-    if not GEMINI_API_KEY:
+    if not _gemini_client:
         return _error_response(
             "The tutor is unavailable right now because GEMINI_API_KEY is not configured."
         )
 
     try:
-        # Step 1: Search ChromaDB using the student's question as the query
         try:
             hits = search(question, college, course, semester, top_k=SEARCH_TOP_K)
         except Exception as exc:
@@ -134,13 +130,13 @@ def ask_question(
                 "Upload papers or run ingestion first."
             )
 
-        # Step 2: Build context from the top 8 chunks
         context = _build_context(hits)
 
-        # Step 3: Ask Gemini for a structured answer
         prompt = _build_prompt(college, course, question, context)
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(prompt)
+        response = _gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+        )
         raw_text = (response.text or "").strip()
 
         if not raw_text:
@@ -148,7 +144,6 @@ def ask_question(
                 "I couldn't generate an answer. Please try again in a moment."
             )
 
-        # Step 4: Parse and return JSON
         try:
             return _parse_answer_json(raw_text)
         except (json.JSONDecodeError, ValueError) as exc:

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
@@ -17,13 +17,15 @@ if str(BACKEND_DIR) not in sys.path:
 from config import GEMINI_API_KEY  # noqa: E402
 from processors.rag_embedder import search  # noqa: E402
 
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash-001"
 RAG_QUERY = "multiple choice questions mcq objective type"
 SEARCH_TOP_K = 15
 TOP_CONTEXT_CHUNKS = 15
 
+# ── Gemini client (new google-genai library) ──────────────────────────────────
+_gemini_client: genai.Client | None = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def _build_context(chunks: list[dict[str, Any]]) -> str:
@@ -54,12 +56,7 @@ def _parse_quiz_json(raw_text: str) -> list[dict[str, Any]]:
     return questions
 
 
-def _build_prompt(
-    college: str,
-    course: str,
-    count: int,
-    context: str,
-) -> str:
+def _build_prompt(college: str, course: str, count: int, context: str) -> str:
     """Prompt Gemini to return MCQ questions as JSON only."""
     return f"""Create {count} MCQ questions from these {college} {course} past exam papers.
 
@@ -98,12 +95,11 @@ def generate_quiz(
 
     Returns a list of question dicts, or an empty list on failure.
     """
-    if not GEMINI_API_KEY:
+    if not _gemini_client:
         print("generate_quiz: GEMINI_API_KEY is not set.")
         return []
 
     try:
-        # Step 1: Retrieve MCQ-style content from ChromaDB
         try:
             hits = search(RAG_QUERY, college, course, semester, top_k=SEARCH_TOP_K)
         except Exception as exc:
@@ -116,17 +112,17 @@ def generate_quiz(
 
         context = _build_context(hits)
 
-        # Step 2: Ask Gemini for structured MCQs
         prompt = _build_prompt(college, course, count, context)
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(prompt)
+        response = _gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+        )
         raw_text = (response.text or "").strip()
 
         if not raw_text:
             print("generate_quiz: Gemini returned empty text.")
             return []
 
-        # Step 3: Parse JSON response
         try:
             return _parse_quiz_json(raw_text)
         except (json.JSONDecodeError, ValueError) as exc:

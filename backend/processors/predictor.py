@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
@@ -20,7 +20,7 @@ if str(BACKEND_DIR) not in sys.path:
 from config import GEMINI_API_KEY  # noqa: E402
 from processors.rag_embedder import get_topic_frequency, search  # noqa: E402
 
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash-001"
 
 # RAG queries used to gather exam-relevant chunks from past papers
 RAG_SEARCH_QUERIES = [
@@ -32,8 +32,10 @@ RAG_SEARCH_QUERIES = [
 TOP_CONTEXT_CHUNKS = 20
 SEARCH_TOP_K = 15
 
+# ── Gemini client (new google-genai library) ──────────────────────────────────
+_gemini_client: genai.Client | None = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def _empty_prediction() -> dict[str, Any]:
@@ -76,7 +78,7 @@ def _count_unique_papers(chunks: list[dict[str, Any]]) -> int:
 
 
 def _build_context(chunks: list[dict[str, Any]]) -> str:
-    """Step 2: Join the top chunk texts into one context block for Gemini."""
+    """Join the top chunk texts into one context block for Gemini."""
     sections: list[str] = []
     for index, hit in enumerate(chunks[:TOP_CONTEXT_CHUNKS], start=1):
         meta = hit.get("metadata") or {}
@@ -95,7 +97,7 @@ def _build_prompt(
     context: str,
     papers_analyzed: int,
 ) -> str:
-    """Step 3: Prompt Gemini to return ranked predictions as JSON only."""
+    """Prompt Gemini to return ranked predictions as JSON only."""
     return f"""You are an expert exam analyst for {college} university India.
 
 Analyze these past {course} exam papers for semester {semester} carefully.
@@ -133,7 +135,7 @@ Return ONLY the JSON, nothing else."""
 
 
 def _parse_gemini_json(raw_text: str) -> dict[str, Any]:
-    """Step 4: Parse Gemini output, stripping markdown fences if present."""
+    """Parse Gemini output, stripping markdown fences if present."""
     text = raw_text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
@@ -151,8 +153,7 @@ def _enrich_with_topic_frequency(
     course: str,
 ) -> dict[str, Any]:
     """
-    Optional enrichment: fill frequency fields from ChromaDB when Gemini
-    omits or approximates them.
+    Fill frequency fields from ChromaDB when Gemini omits or approximates them.
     """
     questions = prediction.get("predicted_questions") or []
     for item in questions:
@@ -182,22 +183,16 @@ def predict_questions(
 ) -> dict[str, Any]:
     """
     Predict the 15 most likely exam questions for a college/course/semester.
-
-    Args:
-        college: e.g. "VIT"
-        course: e.g. "CSE"
-        year: target exam year (used for logging/context; RAG filters by semester)
-        semester: e.g. "sem4"
     """
-    _ = year  # reserved for future year-specific filtering / API responses
+    _ = year  # reserved for future year-specific filtering
 
-    if not GEMINI_API_KEY:
+    if not _gemini_client:
         result = _empty_prediction()
         result["study_tip"] = "GEMINI_API_KEY is not configured."
         return result
 
     try:
-        # ── Step 1: Run multiple RAG searches and merge results ─────────────
+        # Step 1: Run multiple RAG searches and merge results
         combined: list[dict[str, Any]] = []
         for query in RAG_SEARCH_QUERIES:
             try:
@@ -216,13 +211,15 @@ def predict_questions(
 
         papers_analyzed = _count_unique_papers(deduped)
 
-        # ── Step 2: Build context from top chunks ───────────────────────────
+        # Step 2: Build context from top chunks
         context = _build_context(deduped)
 
-        # ── Step 3: Ask Gemini for structured predictions ─────────────────────
+        # Step 3: Ask Gemini for structured predictions
         prompt = _build_prompt(college, course, semester, context, papers_analyzed)
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(prompt)
+        response = _gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+        )
         raw_text = (response.text or "").strip()
 
         if not raw_text:
@@ -231,7 +228,7 @@ def predict_questions(
             result["study_tip"] = "Gemini returned an empty response."
             return result
 
-        # ── Step 4: Parse JSON safely ───────────────────────────────────────
+        # Step 4: Parse JSON safely
         try:
             prediction = _parse_gemini_json(raw_text)
         except (json.JSONDecodeError, ValueError) as exc:

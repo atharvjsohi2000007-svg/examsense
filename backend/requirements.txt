@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-google-generativeai
+google-genai>=0.8.0
 chromadb
 PyMuPDF
 requests

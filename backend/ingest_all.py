@@ -64,17 +64,19 @@ def run_ingestion():
     print(f"Total chunks: {stats_before['total_chunks']}")
     print(f"Total papers: {stats_before['total_documents']}")
 
-    # 1. GitHub Scraper (VIT, SRM, GraphicEra)
-    print("\n[1/3] Scraping GitHub (VIT, SRM, GraphicEra)...")
-    github_scraper.run_all(process_fn=process_and_delete)
+    # 1. GitHub Scraper (GraphicEra only)
+    print("\n[1/3] Scraping GitHub (GraphicEra only)...")
+    from config import GITHUB_TOKEN
+    scraper = github_scraper.GitHubScraper("GraphicEra", "gehuhaldwani/pyqs", token=GITHUB_TOKEN)
+    scraper.run(process_fn=process_and_delete)
 
-    # 2. UPES Library Scraper
-    print("\n[2/3] Scraping UPES Library...")
-    upes_scraper.run(process_fn=process_and_delete)
+    # 2. UPES Library Scraper (Skipped)
+    print("\n[2/3] Scraping UPES Library... (Skipped)")
+    # upes_scraper.run(process_fn=process_and_delete)
 
-    # 3. Manipal Library Scraper
-    print("\n[3/3] Scraping Manipal Library...")
-    manipal_scraper.run(process_fn=process_and_delete)
+    # 3. Manipal Library Scraper (Skipped)
+    print("\n[3/3] Scraping Manipal Library... (Skipped)")
+    # manipal_scraper.run(process_fn=process_and_delete)
 
     # Final Summary
     print("\n" + "=" * 50)

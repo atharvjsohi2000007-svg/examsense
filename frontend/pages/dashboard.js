@@ -36,11 +36,13 @@ export default function Dashboard() {
             fetch(`${process.env.NEXT_PUBLIC_API}/colleges`)
                 .then(res => res.json())
                 .then(data => {
-                    setColleges(data.colleges || []);
+                    const fetchedColleges = data.colleges || [];
+                    setColleges(fetchedColleges.length > 0 ? fetchedColleges : ["VIT", "SRM", "BITS", "GraphicEra", "UPES", "Manipal"]);
                     setLoading(false);
                 })
                 .catch(err => {
                     console.error("Failed to fetch colleges", err);
+                    setColleges(["VIT", "SRM", "BITS", "GraphicEra", "UPES", "Manipal"]);
                     setLoading(false);
                 });
         }
@@ -53,7 +55,13 @@ export default function Dashboard() {
             fetch(`${process.env.NEXT_PUBLIC_API}/courses?college=${formData.college}`)
                 .then(res => res.json())
                 .then(data => {
-                    setCourses(data.courses || []);
+                    const fetchedCourses = data.courses || [];
+                    setCourses(fetchedCourses.length > 0 ? fetchedCourses : ["BTech", "BCA", "BBA", "MBA", "MCA", "BSc"]);
+                    setLoading(false);
+                })
+                .catch(err => {
+                    console.error("Failed to fetch courses", err);
+                    setCourses(["BTech", "BCA", "BBA", "MBA", "MCA", "BSc"]);
                     setLoading(false);
                 });
         } else {
@@ -71,7 +79,13 @@ export default function Dashboard() {
             fetch(`${process.env.NEXT_PUBLIC_API}/semesters?college=${formData.college}&course=${formData.course}&year=${yearSlug}`)
                 .then(res => res.json())
                 .then(data => {
-                    setSemesters(data.semesters || []);
+                    const fetchedSemesters = data.semesters || [];
+                    setSemesters(fetchedSemesters.length > 0 ? fetchedSemesters : ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"]);
+                    setLoading(false);
+                })
+                .catch(err => {
+                    console.error("Failed to fetch semesters", err);
+                    setSemesters(["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"]);
                     setLoading(false);
                 });
         } else {

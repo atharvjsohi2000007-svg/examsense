@@ -1,196 +1,160 @@
 """
-Extract text from exam PDFs — digital text layers and scanned/image pages.
-
-Step 1–2: PyMuPDF (fitz) direct text extraction.
-Step 3–4: If text is too short (< 150 chars), render pages to PNG and OCR via Gemini.
+PDF Reader - Extracts text from PDFs
+Handles both digital and scanned PDFs
+Uses google-genai 2.8.0 for OCR
 """
 
-import re
+import os
 import sys
-from collections import Counter
-from pathlib import Path
-
 import fitz  # PyMuPDF
-import google.generativeai as genai
+from pathlib import Path
+import tempfile
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from config import GEMINI_API_KEY  # noqa: E402
+from config import GEMINI_API_KEY
+from google import genai
+from google.genai import types
 
-# Scanned PDFs usually yield almost no selectable text
-MIN_USEFUL_TEXT_LENGTH = 150
+client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Higher render scale improves OCR accuracy on small scan text
-PAGE_RENDER_SCALE = 2.0
-
-GEMINI_OCR_PROMPT = (
-    "This is a university exam question paper page. Extract ALL text from it "
-    "exactly as written. Include question numbers, marks, and all content."
-)
-
-GEMINI_MODEL = "gemini-1.5-flash"
-
-
-def _empty_result(filepath: Path, page_count: int = 0) -> dict:
-    """Standard response shape with defaults."""
-    return {
-        "text": "",
-        "method": "",
-        "page_count": page_count,
-        "filepath": str(filepath),
-        "success": False,
-        "error": None,
-    }
-
-
-def clean_text(text: str) -> str:
+def extract_text(filepath):
     """
-    Step 5: Normalize whitespace, drop junk characters, and remove
-    repeated header/footer lines that appear on many pages.
+    Extract text from PDF.
+    First tries direct extraction.
+    If scanned, uses Gemini OCR.
     """
-    if not text:
-        return ""
-
-    # Normalize line endings
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-
-    # Drop control characters except newline and tab
-    text = "".join(
-        char
-        for char in text
-        if char in ("\n", "\t")
-        or (ord(char) >= 32 and ord(char) != 127)
-        or ord(char) > 127
-    )
-
-    # Collapse runs of blank lines
-    text = re.sub(r"\n{3,}", "\n\n", text)
-
-    lines = text.split("\n")
-
-    # Short lines repeated on many pages are often headers/footers (page numbers, college name)
-    stripped_lines = [line.strip() for line in lines if line.strip()]
-    repeated = {
-        line
-        for line, count in Counter(stripped_lines).items()
-        if count >= 3 and len(line) < 80
-    }
-    if repeated:
-        lines = [line for line in lines if line.strip() not in repeated]
-
-    return "\n".join(lines).strip()
-
-
-def _extract_direct_text(doc: fitz.Document) -> str:
-    """
-    Step 2: Loop every page and concatenate PyMuPDF text extraction output.
-    """
-    page_texts: list[str] = []
-    for page in doc:
-        page_texts.append(page.get_text())
-    return "\n".join(page_texts)
-
-
-def _page_to_png_bytes(page: fitz.Page) -> bytes:
-    """Render one PDF page to PNG bytes for vision/OCR models."""
-    matrix = fitz.Matrix(PAGE_RENDER_SCALE, PAGE_RENDER_SCALE)
-    pixmap = page.get_pixmap(matrix=matrix, alpha=False)
-    return pixmap.tobytes("png")
-
-
-def _ocr_with_gemini(doc: fitz.Document) -> str:
-    """
-    Step 4: Convert each page to PNG and send to Gemini for text extraction.
-    """
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY is not set — required for scanned PDF OCR.")
-
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(GEMINI_MODEL)
-
-    page_texts: list[str] = []
-    for page_index, page in enumerate(doc):
-        png_bytes = _page_to_png_bytes(page)
-        image_part = {"mime_type": "image/png", "data": png_bytes}
-
-        response = model.generate_content([GEMINI_OCR_PROMPT, image_part])
-        page_text = (response.text or "").strip()
-        if page_text:
-            page_texts.append(page_text)
-
-    return "\n\n".join(page_texts)
-
-
-def extract_text(filepath: str | Path) -> dict:
-    """
-    Extract full text from a PDF using direct parsing or Gemini OCR.
-
-    Returns:
-        {
-            text: str,
-            method: "direct" | "ocr" | "",
-            page_count: int,
-            filepath: str,
-            success: bool,
-            error: str | None,
-        }
-    """
-    path = Path(filepath)
-    result = _empty_result(path)
-
-    if not path.exists():
-        result["error"] = f"File not found: {path}"
-        return result
-
-    doc: fitz.Document | None = None
     try:
-        # Step 1: Open the PDF
-        doc = fitz.open(path)
+        doc = fitz.open(filepath)
+        full_text = ""
+        
+        for page in doc:
+            full_text += page.get_text()
+        
+        doc.close()
+        
+        # If enough text extracted, return it
+        if len(full_text.strip()) > 150:
+            return {
+                "text": full_text.strip(),
+                "method": "direct",
+                "page_count": len(doc),
+                "filepath": filepath,
+                "success": True,
+                "error": None
+            }
+        
+        # Otherwise use Gemini OCR
+        print(f"    → Scanned PDF detected, using OCR...")
+        return extract_with_ocr(filepath)
+        
+    except Exception as e:
+        return {
+            "text": "",
+            "method": "failed",
+            "page_count": 0,
+            "filepath": filepath,
+            "success": False,
+            "error": str(e)
+        }
+
+def extract_with_ocr(filepath):
+    """Use Gemini to read scanned PDF pages"""
+    try:
+        doc = fitz.open(filepath)
+        full_text = ""
         page_count = len(doc)
-        result["page_count"] = page_count
-
-        if page_count == 0:
-            result["error"] = "PDF has no pages."
-            return result
-
-        # Step 2: Try direct text extraction first
-        direct_text = _extract_direct_text(doc)
-
-        # Step 3: Decide whether direct text is usable
-        if len(direct_text.strip()) >= MIN_USEFUL_TEXT_LENGTH:
-            result["text"] = clean_text(direct_text)
-            result["method"] = "direct"
-            result["success"] = bool(result["text"])
-            if not result["success"]:
-                result["error"] = "Direct extraction returned empty text after cleaning."
-            return result
-
-        # Step 4: Scanned PDF — OCR each page with Gemini
-        try:
-            ocr_text = _ocr_with_gemini(doc)
-        except Exception as exc:
-            result["error"] = f"OCR failed: {exc}"
-            return result
-
-        # Step 5: Clean combined OCR output
-        cleaned = clean_text(ocr_text)
-        result["text"] = cleaned
-        result["method"] = "ocr"
-        result["success"] = bool(cleaned)
-        if not result["success"]:
-            result["error"] = "OCR returned empty text after cleaning."
-        return result
-
-    except Exception as exc:
-        result["error"] = str(exc)
-        return result
-    finally:
-        if doc is not None:
-            doc.close()
+        
+        for page_num in range(page_count):
+            try:
+                page = doc[page_num]
+                
+                # Convert page to image
+                mat = fitz.Matrix(2, 2)  # 2x zoom for clarity
+                pix = page.get_pixmap(matrix=mat)
+                
+                # Save to temp file
+                with tempfile.NamedTemporaryFile(
+                    suffix='.png', 
+                    delete=False
+                ) as tmp:
+                    tmp_path = tmp.name
+                    pix.save(tmp_path)
+                
+                # Read image file
+                with open(tmp_path, 'rb') as f:
+                    image_data = f.read()
+                
+                # Send to Gemini
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[
+                        types.Part.from_bytes(
+                            data=image_data,
+                            mime_type="image/png"
+                        ),
+                        types.Part.from_text(
+                            text="""This is a university exam question paper page.
+                            Extract ALL text exactly as written.
+                            Include question numbers, marks, and all content.
+                            Return only the extracted text, nothing else."""
+                        )
+                    ]
+                )
+                
+                page_text = response.text
+                if page_text:
+                    full_text += page_text + "\n\n"
+                
+                # Delete temp file
+                os.unlink(tmp_path)
+                
+            except Exception as e:
+                print(f"    → OCR failed for page {page_num}: {e}")
+                continue
+        
+        doc.close()
+        
+        if full_text.strip():
+            return {
+                "text": full_text.strip(),
+                "method": "ocr",
+                "page_count": page_count,
+                "filepath": filepath,
+                "success": True,
+                "error": None
+            }
+        else:
+            return {
+                "text": "",
+                "method": "ocr_failed",
+                "page_count": page_count,
+                "filepath": filepath,
+                "success": False,
+                "error": "No text extracted via OCR"
+            }
+            
+    except Exception as e:
+        return {
+            "text": "",
+            "method": "ocr_failed",
+            "page_count": 0,
+            "filepath": filepath,
+            "success": False,
+            "error": str(e)
+        }
 
 
 if __name__ == "__main__":
-    result = extract_text("test.pdf")
-    print(result)
+    # Test with a sample PDF
+    test_path = "test.pdf"
+    if os.path.exists(test_path):
+        result = extract_text(test_path)
+        print(f"Method: {result['method']}")
+        print(f"Success: {result['success']}")
+        print(f"Text length: {len(result['text'])}")
+        print(f"First 200 chars: {result['text'][:200]}")
+    else:
+        print("No test.pdf found")

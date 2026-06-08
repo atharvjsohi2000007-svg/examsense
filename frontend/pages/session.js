@@ -36,6 +36,33 @@ export default function SessionPage() {
     // Model Paper Data
     const [modelPaper, setModelPaper] = useState("");
 
+    // Fallback & Normalization values
+    const displayCollege = college || "VIT";
+    const displayCourse = course || "BTech";
+    
+    const formatYear = (y) => {
+        if (!y) return "Year 1";
+        const clean = y.toLowerCase().replace(' ', '');
+        if (clean === 'year1') return "Year 1";
+        if (clean === 'year2') return "Year 2";
+        if (clean === 'year3') return "Year 3";
+        if (clean === 'year4') return "Year 4";
+        return y;
+    };
+    const displayYear = formatYear(year);
+    const displayYearSlug = displayYear.toLowerCase().replace(' ', '');
+
+    const formatSemester = (s) => {
+        if (!s) return "Sem 1";
+        const clean = s.toLowerCase().replace(' ', '');
+        if (clean.startsWith('sem')) {
+            const num = clean.replace('sem', '');
+            return `Sem ${num}`;
+        }
+        return s;
+    };
+    const displaySemester = formatSemester(semester);
+
     const scrollToBottom = () => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
@@ -51,7 +78,12 @@ export default function SessionPage() {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API}/predict`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ college, course, year, semester })
+                body: JSON.stringify({
+                    college: displayCollege,
+                    course: displayCourse,
+                    year: displayYearSlug,
+                    semester: displaySemester
+                })
             });
             const result = await res.json();
             setPredictions(result.predicted_questions || []);
@@ -72,7 +104,12 @@ export default function SessionPage() {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API}/model-paper`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ college, course, year, semester })
+                body: JSON.stringify({
+                    college: displayCollege,
+                    course: displayCourse,
+                    year: displayYearSlug,
+                    semester: displaySemester
+                })
             });
             const result = await res.json();
             setModelPaper(result.paper || "No model paper generated.");
@@ -90,7 +127,11 @@ export default function SessionPage() {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API}/flashcards`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ college, course, semester })
+                body: JSON.stringify({
+                    college: displayCollege,
+                    course: displayCourse,
+                    semester: displaySemester
+                })
             });
             const result = await res.json();
             setFlashcards(result.flashcards || []);
@@ -110,7 +151,11 @@ export default function SessionPage() {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API}/quiz`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ college, course, semester })
+                body: JSON.stringify({
+                    college: displayCollege,
+                    course: displayCourse,
+                    semester: displaySemester
+                })
             });
             const result = await res.json();
             setQuizQuestions(result.questions || []);
@@ -137,7 +182,12 @@ export default function SessionPage() {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API}/ask`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ college, course, semester, question: query })
+                body: JSON.stringify({
+                    college: displayCollege,
+                    course: displayCourse,
+                    semester: displaySemester,
+                    question: query
+                })
             });
             const result = await res.json();
             const aiMsg = { role: 'ai', text: result.answer || "I couldn't find an answer for that." };
@@ -369,9 +419,9 @@ export default function SessionPage() {
                 {/* LEFT PANEL */}
                 <aside className="w-[280px] bg-[#F5F5F7] border-r border-[#E5E5E5] flex flex-col p-6 overflow-y-auto">
                     <div className="mb-8">
-                        <h2 className="text-lg font-bold truncate">{college}</h2>
+                        <h2 className="text-lg font-bold truncate">{displayCollege}</h2>
                         <p className="text-[13px] text-[#6E6E73] font-medium flex items-center gap-1.5 mt-1">
-                            {course} • Sem {semester?.replace('sem', '')}
+                            {displayCourse} • {displaySemester}
                             <span className="w-2 h-2 bg-green-500 rounded-full inline-block" />
                         </p>
                     </div>
@@ -404,10 +454,10 @@ export default function SessionPage() {
 
                     <p className="text-[10px] font-black uppercase text-zinc-400 tracking-widest mb-4">Session Info</p>
                     <div className="space-y-3">
-                        <div className="text-[13px] text-zinc-500">📚 College: <span className="text-zinc-800 font-bold ml-1">{college}</span></div>
-                        <div className="text-[13px] text-zinc-500">📖 Course: <span className="text-zinc-800 font-bold ml-1">{course}</span></div>
-                        <div className="text-[13px] text-zinc-500">📅 Year: <span className="text-zinc-800 font-bold ml-1">{year}</span></div>
-                        <div className="text-[13px] text-zinc-500">🗓 Sem: <span className="text-zinc-800 font-bold ml-1">{semester}</span></div>
+                        <div className="text-[13px] text-zinc-500">📚 College: <span className="text-zinc-800 font-bold ml-1">{displayCollege}</span></div>
+                        <div className="text-[13px] text-zinc-500">📖 Course: <span className="text-zinc-800 font-bold ml-1">{displayCourse}</span></div>
+                        <div className="text-[13px] text-zinc-500">📅 Year: <span className="text-zinc-800 font-bold ml-1">{displayYear}</span></div>
+                        <div className="text-[13px] text-zinc-500">🗓 Sem: <span className="text-zinc-800 font-bold ml-1">{displaySemester}</span></div>
                     </div>
                 </aside>
 
